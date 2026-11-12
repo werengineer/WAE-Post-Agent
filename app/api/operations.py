@@ -8,7 +8,9 @@ from urllib.parse import unquote
 import requests
 
 from app.tools import whatsapp as bot
+from app.services import cloudapi
 from app.services.chat_policy import chat_scope, unrestricted
+from app.services.messaging import provider
 
 
 class APIError(Exception):
@@ -41,6 +43,9 @@ def current_row(db, table, item_id):
 
 
 def connection_status():
+    if provider() == "cloud":
+        return {**cloudapi.status(), "provider": "cloud",
+                "test_chat_id": os.getenv("OPENWA_TEST_CHAT_ID", "").strip() or None, "allow_all_chats": unrestricted()}
     try:
         response = requests.get(os.environ["OPENWA_BASE_URL"].rstrip("/") + "/api/sessions",
                                 headers={"X-API-Key": os.environ["OPENWA_API_KEY"]},

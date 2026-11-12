@@ -41,6 +41,13 @@ Server-to-server requests without an Origin header still require the token.
 This is a single-operator local API; it does not implement user accounts or roles.
 Supply the token privately at runtime; do not commit it or embed it in a public UI bundle.
 
+## WhatsApp webhooks
+
+- `POST /openwa/webhook` — OpenWA gateway events (`X-OpenWA-Signature` HMAC), used when `WHATSAPP_PROVIDER=openwa` (default).
+- `GET /whatsapp/webhook` — Meta's one-time URL check (`hub.mode`, `hub.verify_token`, `hub.challenge`), `WHATSAPP_PROVIDER=cloud` only.
+- `POST /whatsapp/webhook` — Meta Cloud API message calls (`X-Hub-Signature-256` HMAC of the raw body with `WHATSAPP_APP_SECRET`); answers 404 when the provider is `openwa`.
+  Text messages to the configured `WHATSAPP_PHONE_NUMBER_ID` are stored; everything else is acknowledged with `200 OK` and dropped.
+
 ## Routes
 
 ### Combined agent and social tools
