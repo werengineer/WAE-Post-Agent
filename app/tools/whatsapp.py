@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime
 from app.storage.database import connect
-from app.services.openwa import send_text
+from app.services.messaging import send_text, session_id
 from app.agent.drafting import LeadDraft, generate
 from app.services.chat_policy import allowed_chat
 
@@ -15,7 +15,7 @@ LOG = logging.getLogger(__name__)
 def accept(db, event):
     if not isinstance(event, dict):
         raise ValueError("Expected an event object")
-    if event.get("sessionId") != os.environ["OPENWA_SESSION_ID"]:
+    if event.get("sessionId") != session_id():
         raise ValueError("Unexpected session")
     if event.get("event") != "message.received":
         return False

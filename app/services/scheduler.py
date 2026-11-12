@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager, closing
 from starlette.concurrency import run_in_threadpool
 from app.tools import whatsapp as bot
 from app.services.chat_policy import unrestricted
+from app.services.messaging import provider
 
 
 def tick(db):
@@ -22,13 +23,17 @@ async def lifespan(app):
     if not app.state.run_worker:
         yield
         return
-    required = ("OPENWA_BASE_URL", "OPENWA_API_KEY", "OPENWA_SESSION_ID",
-                "OPENWA_OWNER_CHAT_ID", "OPENWA_WEBHOOK_SECRET", "GROQ_API_KEY")
+    if provider() == "cloud":
+        required, secret = ("WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_ACCESS_TOKEN", "WHATSAPP_APP_SECRET",
+                            "WHATSAPP_VERIFY_TOKEN", "OPENWA_OWNER_CHAT_ID", "GROQ_API_KEY"), "WHATSAPP_VERIFY_TOKEN"
+    else:
+        required, secret = ("OPENWA_BASE_URL", "OPENWA_API_KEY", "OPENWA_SESSION_ID",
+                            "OPENWA_OWNER_CHAT_ID", "OPENWA_WEBHOOK_SECRET", "GROQ_API_KEY"), "OPENWA_WEBHOOK_SECRET"
     for key in required:
         if not os.getenv(key):
             raise ValueError(f"Set {key} in .env")
-    if len(os.environ["OPENWA_WEBHOOK_SECRET"]) < 16:
-        raise ValueError("Webhook secret must be at least 16 characters")
+    if len(os.environ[secret]) < 16:
+        raise ValueError(f"{secret} must be at least 16 characters")
     if not unrestricted() and not os.getenv("OPENWA_TEST_CHAT_ID", "").strip():
         bot.LOG.warning("No OPENWA_TEST_CHAT_ID set: all customer chats are blocked")
     with closing(bot.connect()) as db, db:

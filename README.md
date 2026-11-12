@@ -65,6 +65,28 @@ Customer WhatsApp messages use a constrained extraction-and-drafting path. They 
 
 **Sending a saved WhatsApp draft requires explicit approval.** Send `{"message":"send draft #3"}` to `/api/agent/run`, or run `python -m app run "send draft #3"`. This sends the saved text of that draft. `send it` asks for the draft ID. The command is checked deterministically outside the model loop; customer messages and model tool output cannot authorize a send. The direct approval endpoint/CLI also remains available. Social publishing still requires its separate explicit approval action.
 
+## Official WhatsApp (Cloud API)
+
+OpenWA is an unofficial gateway and carries a ban risk. For a company number use Meta's official **WhatsApp Cloud API** instead:
+set `WHATSAPP_PROVIDER=cloud` and fill the `WHATSAPP_*` values of `.env.example`. Nothing else in the agent changes: chats stay `digits@c.us`
+(country code + number, no `+`, for example `919876543210@c.us`), and `OPENWA_TEST_CHAT_ID`, `OPENWA_OWNER_CHAT_ID` and `OPENWA_ALLOW_ALL_CHATS` keep their names and meaning.
+The `OPENWA_BASE_URL`, `OPENWA_API_KEY`, `OPENWA_SESSION_ID` and `OPENWA_WEBHOOK_SECRET` values are not needed in this mode.
+
+Setup (Meta side): in the Meta app that owns the business number, add the WhatsApp product, create a system user with a permanent token
+(`whatsapp_business_messaging` permission), and note the phone number id and the app secret. Register the webhook:
+
+- Callback URL: `https://<your-host>/whatsapp/webhook` (Meta needs public HTTPS; put nginx or a tunnel in front of port 8000)
+- Verify token: the same `WHATSAPP_VERIFY_TOKEN`
+- Field: `messages`
+
+If another product already uses the app's webhook, set a webhook override for this one phone number in Meta instead of changing the app's callback URL.
+Messages to other numbers of the same app are acknowledged and ignored, so the two never mix.
+
+Rules of the Cloud API that matter here: a free-text reply only works within 24 hours after the customer last wrote (the bot answers customers, so this normally holds);
+the owner notification outside that window needs an approved template (`CLOUD_OWNER_TEMPLATE`, one body variable); groups are not supported (only `@c.us` chats);
+each conversation is billed by Meta. A refused or timed-out send is marked `uncertain` and never resent automatically, as before.
+`GET /api/status` shows the number, its quality rating and verification state instead of the OpenWA session.
+
 ## Connect OpenWA locally
 
 With OpenWA in Docker Desktop and the Python bot on Windows, register:
@@ -118,6 +140,8 @@ python -m app draft --platform linkedin --topic "Introduce our customer support 
 # Review the saved JSON first, then explicitly submit it:
 python -m app publish posts/YOUR-POST-ID.json
 ```
+
+**WAE setup:** point `SOCIAL_WEBHOOK_URL` at the WAE Bot server (`https://ai.wae.company/inbox/social`) and set `SOCIAL_WEBHOOK_TOKEN` to its `SOCIAL_INBOX_TOKEN`. The post then becomes a **draft** in OpenPost (posting.weareengineer.com) for LinkedIn or X; a person schedules or publishes it there, so `submitted` means "draft created in OpenPost". Instagram needs media and is refused (HTTP 422).
 
 Social posts remain JSON files in `posts/`. Publishing requires an HTTPS `SOCIAL_WEBHOOK_URL`, with optional `SOCIAL_WEBHOOK_TOKEN` bearer authentication. The receiver must route the platform, authenticate accounts, and deduplicate by the `Idempotency-Key` post ID. A 2xx response marks the post `submitted`; it does not confirm platform publication. After a timeout, check the receiver before retrying. Instagram requires media attached by the receiving integration.
 

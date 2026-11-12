@@ -18,6 +18,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.tools import whatsapp as bot
 from app.api.operations import APIError, route
+from app.services import cloudapi
+from app.services.messaging import provider
 from app.services.scheduler import lifespan
 
 
@@ -67,7 +69,7 @@ class BodyLimitMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] not in {"POST", "PATCH"}:
             return await self.app(scope, receive, send)
-        limit = 1048576 if scope["path"] == "/openwa/webhook" else 65536
+        limit = 1048576 if scope["path"] in ("/openwa/webhook", "/whatsapp/webhook") else 65536
         chunks, size = [], 0
         while True:
             message = await receive()
@@ -281,6 +283,41 @@ def create_app(*, run_worker=True):
                     bot.accept(db, event)
                 except (ValueError, KeyError, TypeError):
                     raise APIError(400, "Invalid webhook event")
+
+        await run_in_threadpool(store)
+        return PlainTextResponse("OK")
+
+    # Meta's WhatsApp Cloud API (WHATSAPP_PROVIDER=cloud): one-time URL check, then signed message calls
+    @app.get("/whatsapp/webhook", tags=["WhatsApp Cloud API"])
+    async def cloud_verify(request: Request):
+        query, token = request.query_params, os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+        if (provider() == "cloud" and token and query.get("hub.mode") == "subscribe"
+                and hmac.compare_digest(query.get("hub.verify_token", "").encode(), token.encode())):
+            return PlainTextResponse(query.get("hub.challenge", ""))
+        raise APIError(403, "Webhook verification failed")
+
+    @app.post("/whatsapp/webhook", tags=["WhatsApp Cloud API"])
+    async def cloud_webhook(request: Request):
+        if provider() != "cloud":
+            raise APIError(404, "Not found")
+        raw = await request.body()
+        if not cloudapi.verify_signature(raw, request.headers.get("X-Hub-Signature-256", "")):
+            raise APIError(401, "Invalid webhook signature")
+        try:
+            found = cloudapi.events(json.loads(raw))
+        except (ValueError, UnicodeError):
+            raise APIError(400, "Invalid webhook JSON")
+        # one Meta app can carry several numbers: only messages to OUR number are ours; the rest is acknowledged and dropped
+        phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+        mine = [event for event in found if event["sessionId"] == phone_id]
+
+        def store():
+            with closing(bot.connect()) as db:
+                for event in mine:
+                    try:
+                        bot.accept(db, event)
+                    except (ValueError, KeyError, TypeError):
+                        bot.LOG.warning("Ignored an invalid WhatsApp message event")  # 200 anyway: Meta would retry it for days
 
         await run_in_threadpool(store)
         return PlainTextResponse("OK")

@@ -1,0 +1,18 @@
+[Unit]
+Description=WAE Post Agent (WhatsApp leads, social drafts, reminders)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=wae
+WorkingDirectory=/opt/wae-post-agent
+# .env sits in the working directory: the app reads it itself (python-dotenv). One worker, no reload (see README).
+# Only localhost: nginx exposes just /whatsapp/webhook to the internet (see deploy/EC2.md).
+ExecStart=/opt/wae-post-agent/.venv/bin/python -m app serve --host 127.0.0.1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
