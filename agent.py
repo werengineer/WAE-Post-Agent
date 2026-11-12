@@ -17,7 +17,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 
-LIMITS = {"linkedin": 3000, "x": 280, "instagram": 2200}
+LIMITS = {"linkedin": 3000, "x": 280, "instagram": 2200, "facebook": 63206}
 
 
 class Draft(BaseModel):
@@ -112,6 +112,29 @@ def publish(path: Path) -> None:
     print(f"Submitted {post['post_id']} to the publishing endpoint.")
 
 
+def publish_direct(path: Path, live: bool = False) -> None:
+    """Publish through the native adapter. Without live=True, only print the requests."""
+    from social import PublishError, get_adapter
+    post = json.loads(path.read_text(encoding="utf-8"))
+    if post.get("status") != "draft":
+        raise ValueError("Only drafts can be published")
+    validate_text(post["text"], post["platform"])
+    try:
+        adapter = get_adapter(post["platform"])
+        if not live:
+            for call in adapter.plan(post):
+                print(f"[dry run] {call.method} {call.url}\n{json.dumps(call.json or call.data, indent=2)}")
+            print("Nothing was sent. Re-run with --live after review to publish.")
+            return
+        remote_id = adapter.publish(post)
+    except PublishError as exc:
+        raise ValueError(str(exc)) from exc
+    post.update(status="published", remote_id=remote_id,
+                published_at=datetime.now(timezone.utc).isoformat())
+    path.write_text(json.dumps(post, indent=2), encoding="utf-8")
+    print(f"Published {post['post_id']} to {post['platform']} (id {remote_id}).")
+
+
 def main() -> None:
     load_dotenv()
     parser = argparse.ArgumentParser(description=__doc__)
@@ -122,10 +145,15 @@ def main() -> None:
     draft.add_argument("--company", type=Path, default=Path("company.json"))
     send = commands.add_parser("publish", help="Submit a reviewed draft to your webhook")
     send.add_argument("file", type=Path)
+    direct = commands.add_parser("publish-direct", help="Publish a reviewed draft via native platform API (dry run by default)")
+    direct.add_argument("file", type=Path)
+    direct.add_argument("--live", action="store_true", help="Actually send to the platform")
     args = parser.parse_args()
     try:
         if args.command == "publish":
             publish(args.file)
+        elif args.command == "publish-direct":
+            publish_direct(args.file, args.live)
         else:
             company = json.loads(args.company.read_text(encoding="utf-8"))
             if not company.get("name"):

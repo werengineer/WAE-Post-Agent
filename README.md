@@ -34,6 +34,17 @@ The endpoint should deduplicate by the `Idempotency-Key` header (the post ID). A
 
 Instagram requires media, so its receiving workflow must attach an image or video. Character checks here use Python string length; final platform rules, including X's URL and Unicode weighting, belong in the publishing integration.
 
+## Native publishing (LinkedIn, X, Facebook, Instagram)
+
+`social/` holds direct API adapters, so the webhook is optional. Set the variables listed in `.env.example`, then:
+
+```powershell
+.\.venv\Scripts\python agent.py publish-direct posts/YOUR-POST-ID.json          # dry run: prints the request only
+.\.venv\Scripts\python agent.py publish-direct posts/YOUR-POST-ID.json --live   # really posts
+```
+
+Instagram drafts need a public HTTPS `image_url` field added to the JSON. A successful live post sets `status` to `published` and stores `remote_id`. There are no retries; after a timeout, check the platform before re-running. Tests mock all HTTP calls.
+
 ## Workflow
 
 `START → draft with model → validate length → save JSON → END`
