@@ -51,6 +51,9 @@ if [ -d "$APP_DIR/.git" ]; then
   sudo -u "$APP_USER" git -C "$APP_DIR" fetch origin "$BRANCH"
   sudo -u "$APP_USER" git -C "$APP_DIR" checkout "$BRANCH"
   sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only origin "$BRANCH"
+elif [ -f "$APP_DIR/app/__main__.py" ]; then
+  echo "Code already in $APP_DIR (copied by hand): used as it is."
+  sudo chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 else
   sudo mkdir -p "$APP_DIR" && sudo chown "$APP_USER:$APP_USER" "$APP_DIR"
   sudo -u "$APP_USER" git clone -b "$BRANCH" "$REPO" "$APP_DIR"
