@@ -115,3 +115,12 @@ Account ids: `GET /api/posting` of the WAE Bot lists the OpenPost accounts per w
 - A free-text reply works within 24 hours after the customer's last message. For owner notifications outside that window, create an approved template with one body variable and set `CLOUD_OWNER_TEMPLATE`.
 - Meta bills per conversation. Groups are not supported.
 - Backups: `/opt/wae-post-agent/whatsapp.sqlite3` holds customer messages: protect and back it up.
+
+## OpenWA mode (QR code, no Meta secret)
+
+Choose this when the business number is linked by scanning a QR code instead of through Meta. It is unofficial (the number can be restricted or banned): use a number you can afford to lose.
+
+1. `bash deploy/openwa-setup.sh`: installs Docker if missing, runs OpenWA on `127.0.0.1:2785` only, makes the session `wae-leads`, registers the webhook to the agent and saves the connection values in `/opt/openwa/.wae-openwa.env`. It shows the free memory and disk first: OpenWA needs about 1 GB of memory and a few GB of disk, so on a small server that also runs the WAE Bot a separate server is safer.
+2. Scan the QR code through an SSH tunnel (the script prints the exact command): open `http://localhost:2785` on your laptop, start the session, then WhatsApp > Linked devices > Link a device.
+3. `bash deploy/install.sh` and answer `1` (OpenWA). It reads the saved values, so there is no secret to type. No nginx step and no Meta step.
+4. Keep ports 2785 and 8000 closed in the security group (only 22, 80 and 443 are open today). In this mode the agent listens on all interfaces so that the OpenWA container can reach it, which is safe only while port 8000 is closed.
