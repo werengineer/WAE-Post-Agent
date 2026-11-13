@@ -1,7 +1,9 @@
 {
-  "name": "Example Company",
-  "description": "We help small businesses simplify their daily operations.",
-  "audience": "Small business owners",
-  "tone": "Friendly, clear, and professional",
-  "website": "https://example.com"
+  "name": "We Are Engineer (WAE)",
+  "description": "WAE is an engineering ecosystem that helps engineers grow and get hired. Its products: WAE Academy (engineering courses and skill-development programs), WAE Colleges (engineering college programs and admissions), WAE Companies (jobs and internships for engineers, and hiring for companies), WAE Social (community and networking for engineers) and WAE Projects (engineering projects and portfolios).",
+  "audience": "Engineering students and graduates, engineering colleges, and companies that hire engineers",
+  "tone": "Friendly, clear and professional. Simple English; short sentences; no hype.",
+  "website": "https://weareengineer.com",
+  "products": ["WAE Academy", "WAE Colleges", "WAE Companies", "WAE Social", "WAE Projects"],
+  "never_state": "Fees, discounts, dates, batch details, placement or job guarantees, and user or student counts. If asked, say the WAE team will share the details."
 }

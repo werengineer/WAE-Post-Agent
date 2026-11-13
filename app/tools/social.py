@@ -1,6 +1,5 @@
 """A small LangGraph workflow for drafting and publishing company posts."""
 
-import argparse
 import json
 import os
 import uuid
@@ -10,9 +9,7 @@ from typing import TypedDict
 from urllib.parse import urlparse
 
 import requests
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-from langchain_groq import ChatGroq
+from app.services.models import get_model
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
@@ -43,10 +40,7 @@ def validate_text(text: str, platform: str) -> None:
 
 
 def generate(state: State) -> dict:
-    # model = ChatOpenAI(model=os.getenv("OPENAI_MODEL", "gpt-4.1-mini"), temperature=0.5)
-
-    model = ChatGroq(model=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
-    
+    model = get_model()
     result = model.with_structured_output(Draft).invoke([
         ("system", "You write social media posts for a company. Use only facts in the "
          "provided company profile and topic. Do not invent statistics, endorsements, "
@@ -79,7 +73,7 @@ def save(state: State) -> dict:
     return {"post_id": post_id, "output": str(path)}
 
 
-def build_agent():
+def build_social_workflow():
     graph = StateGraph(State)
     graph.add_node("draft", generate)
     graph.add_node("validate", validate)
@@ -114,7 +108,7 @@ def publish(path: Path) -> None:
 
 def publish_direct(path: Path, live: bool = False) -> None:
     """Publish through the native adapter. Without live=True, only print the requests."""
-    from social import PublishError, get_adapter
+    from app.services.social_adapters import PublishError, get_adapter
     post = json.loads(path.read_text(encoding="utf-8"))
     if post.get("status") != "draft":
         raise ValueError("Only drafts can be published")
@@ -133,38 +127,3 @@ def publish_direct(path: Path, live: bool = False) -> None:
                 published_at=datetime.now(timezone.utc).isoformat())
     path.write_text(json.dumps(post, indent=2), encoding="utf-8")
     print(f"Published {post['post_id']} to {post['platform']} (id {remote_id}).")
-
-
-def main() -> None:
-    load_dotenv()
-    parser = argparse.ArgumentParser(description=__doc__)
-    commands = parser.add_subparsers(dest="command", required=True)
-    draft = commands.add_parser("draft", help="Generate and save a post for review")
-    draft.add_argument("--topic", required=True)
-    draft.add_argument("--platform", choices=LIMITS, default="linkedin")
-    draft.add_argument("--company", type=Path, default=Path("company.json"))
-    send = commands.add_parser("publish", help="Submit a reviewed draft to your webhook")
-    send.add_argument("file", type=Path)
-    direct = commands.add_parser("publish-direct", help="Publish a reviewed draft via native platform API (dry run by default)")
-    direct.add_argument("file", type=Path)
-    direct.add_argument("--live", action="store_true", help="Actually send to the platform")
-    args = parser.parse_args()
-    try:
-        if args.command == "publish":
-            publish(args.file)
-        elif args.command == "publish-direct":
-            publish_direct(args.file, args.live)
-        else:
-            company = json.loads(args.company.read_text(encoding="utf-8"))
-            if not company.get("name"):
-                raise ValueError("Company profile needs a name")
-            result = build_agent().invoke({"company": company, "topic": args.topic,
-                                           "platform": args.platform})
-            print(result["text"])
-            print(f"\nSaved draft: {result['output']}")
-    except (ValueError, OSError, requests.RequestException) as exc:
-        parser.exit(1, f"Error: {exc}\n")
-
-
-if __name__ == "__main__":
-    main()
