@@ -65,55 +65,74 @@ sudo -u "$APP_USER" "$APP_DIR/.venv/bin/python" -m pip install -q -r "$APP_DIR/r
 (cd "$APP_DIR" && sudo -u "$APP_USER" .venv/bin/python -m unittest discover -s tests) || die "The tests failed. Send the output above; nothing was started."
 
 say "4/7 Settings (.env)"
+OPENWA_ENV=/opt/openwa/.wae-openwa.env
 if sudo test -f "$APP_DIR/.env"; then
   echo "$APP_DIR/.env already exists: kept as it is."
 else
   ask GROQ_KEY "Groq API key (typing is hidden)" secret
   [ -n "$GROQ_KEY" ] || die "The Groq key is empty."
-  ask APP_SECRET "Meta app secret (Meta app > Settings > Basic; typing is hidden)" secret
-  [ -n "$APP_SECRET" ] || die "The Meta app secret is empty."
-  ask CUSTOMER "Customer chat the agent may read and answer (digits only, country code first, e.g. 919876543210)"
-  digits "$CUSTOMER" || die "That is not a phone number in digits."
-  ask OWNER "Number that gets the 'new lead / draft ready' notifications (digits only)"
+  ask PROV "WhatsApp: 1 = OpenWA (link the number by scanning a QR code; unofficial)   2 = Meta Cloud API (official)   [1/2]"
+  if [ "$PROV" = 2 ]; then PROVIDER=cloud; else PROVIDER=openwa; fi
+
+  ask ALLC "Answer EVERY customer who writes to the business number? [y/N]  (N = only one test number first, the safe way to start)"
+  if [[ "$ALLC" =~ ^[Yy] ]]; then
+    ALLOW_ALL=true; CUSTOMER=""
+  else
+    ALLOW_ALL=false
+    ask CUSTOMER "Test customer number the agent may read and answer (digits only, country code first, e.g. 919876543210)"
+    digits "$CUSTOMER" || die "That is not a phone number in digits."
+  fi
+  ask AUTOQ "Send the replies automatically, with nobody approving each one? [y/N]  (N = every reply waits for a person)"
+  if [[ "$AUTOQ" =~ ^[Yy] ]]; then AUTO_REPLY=on; else AUTO_REPLY=off; fi
+  if [ "$PROVIDER" = cloud ]; then
+    ask OWNER "Number that gets the 'new lead / draft ready' notifications (digits only; not the business number itself)"
+  else
+    ask OWNER "Number that gets the 'new lead / draft ready' notifications (digits only; with OpenWA it may even be the linked number: a note to yourself)"
+  fi
   digits "$OWNER" || die "That is not a phone number in digits."
 
-  PHONE_ID=$(envval "$BOT_ENV" WHATSAPP_PHONENUM_ID)
-  TOKEN=$(envval "$BOT_ENV" WHATSAPP_PERMANENT_TOKEN)
-  ask SAME "Use the same business number as the WAE Bot (its id ends ...${PHONE_ID: -4})? [Y/n]"
-  if [[ "$SAME" =~ ^[Nn] ]]; then
-    ask PHONE_ID "Phone number id of the other number (Meta > WhatsApp > API setup)"
-    ask TOKEN "Access token for it (typing is hidden)" secret
+  if [ "$PROVIDER" = cloud ]; then
+    ask APP_SECRET "Meta app secret (Meta app > Settings > Basic; typing is hidden)" secret
+    [ -n "$APP_SECRET" ] || die "The Meta app secret is empty."
+    PHONE_ID=$(envval "$BOT_ENV" WHATSAPP_PHONENUM_ID)
+    TOKEN=$(envval "$BOT_ENV" WHATSAPP_PERMANENT_TOKEN)
+    ask SAME "Use the same business number as the WAE Bot (its id ends ...${PHONE_ID: -4})? [Y/n]"
+    if [[ "$SAME" =~ ^[Nn] ]]; then
+      ask PHONE_ID "Phone number id of the other number (Meta > WhatsApp > API setup)"
+      ask TOKEN "Access token for it (typing is hidden)" secret
+    fi
+    [ -n "$PHONE_ID" ] && [ -n "$TOKEN" ] || die "No WhatsApp phone number id / token (looked in $BOT_ENV)."
+    VERIFY=$(openssl rand -hex 24)
+    WA_BLOCK=$(printf 'WHATSAPP_PROVIDER=cloud\nWHATSAPP_PHONE_NUMBER_ID=%s\nWHATSAPP_ACCESS_TOKEN=%s\nWHATSAPP_APP_SECRET=%s\nWHATSAPP_VERIFY_TOKEN=%s' "$PHONE_ID" "$TOKEN" "$APP_SECRET" "$VERIFY")
+  else
+    # OpenWA: no secret to type. deploy/openwa-setup.sh made the gateway and saved its connection values; they are read from there.
+    sudo test -f "$OPENWA_ENV" || die "OpenWA is not set up yet. Run  bash deploy/openwa-setup.sh  first (it also shows how to scan the QR code), then run this again."
+    OW_URL=$(envval "$OPENWA_ENV" OPENWA_BASE_URL); OW_KEY=$(envval "$OPENWA_ENV" OPENWA_API_KEY)
+    OW_SESSION=$(envval "$OPENWA_ENV" OPENWA_SESSION_ID); OW_SECRET=$(envval "$OPENWA_ENV" OPENWA_WEBHOOK_SECRET)
+    [ -n "$OW_URL" ] && [ -n "$OW_KEY" ] && [ -n "$OW_SESSION" ] && [ -n "$OW_SECRET" ] || die "$OPENWA_ENV is incomplete. Run deploy/openwa-setup.sh again."
+    WA_BLOCK=$(printf 'WHATSAPP_PROVIDER=openwa\nOPENWA_BASE_URL=%s\nOPENWA_API_KEY=%s\nOPENWA_SESSION_ID=%s\nOPENWA_WEBHOOK_SECRET=%s' "$OW_URL" "$OW_KEY" "$OW_SESSION" "$OW_SECRET")
   fi
-  [ -n "$PHONE_ID" ] && [ -n "$TOKEN" ] || die "No WhatsApp phone number id / token (looked in $BOT_ENV)."
 
-  VERIFY=$(openssl rand -hex 24); API_TOKEN=$(openssl rand -hex 24); SOCIAL_TOKEN=$(openssl rand -hex 24)
+  API_TOKEN=$(openssl rand -hex 24); SOCIAL_TOKEN=$(openssl rand -hex 24)
   TMP=$(mktemp); trap 'rm -f "$TMP"' EXIT; chmod 600 "$TMP"
-  cat >"$TMP" <<EOF
-GROQ_API_KEY=$GROQ_KEY
-GROQ_MODEL=openai/gpt-oss-120b
-AGENT_TIMEZONE=Asia/Kolkata
-WHATSAPP_PROVIDER=cloud
-WHATSAPP_PHONE_NUMBER_ID=$PHONE_ID
-WHATSAPP_ACCESS_TOKEN=$TOKEN
-WHATSAPP_APP_SECRET=$APP_SECRET
-WHATSAPP_VERIFY_TOKEN=$VERIFY
-OPENWA_TEST_CHAT_ID=${CUSTOMER}@c.us
-OPENWA_OWNER_CHAT_ID=${OWNER}@c.us
-OPENWA_ALLOW_ALL_CHATS=false
-WHATSAPP_DB=whatsapp.sqlite3
-WHATSAPP_API_TOKEN=$API_TOKEN
-WHATSAPP_API_ORIGINS=
-SOCIAL_WEBHOOK_URL=https://ai.wae.company/inbox/social
-SOCIAL_WEBHOOK_TOKEN=$SOCIAL_TOKEN
-EOF
+  {
+    printf 'GROQ_API_KEY=%s\nGROQ_MODEL=openai/gpt-oss-120b\nAGENT_TIMEZONE=Asia/Kolkata\n' "$GROQ_KEY"
+    printf '%s\n' "$WA_BLOCK"
+    if [ -n "$CUSTOMER" ]; then printf 'OPENWA_TEST_CHAT_ID=%s@c.us\n' "$CUSTOMER"; else printf 'OPENWA_TEST_CHAT_ID=\n'; fi
+    printf 'OPENWA_OWNER_CHAT_ID=%s@c.us\nOPENWA_ALLOW_ALL_CHATS=%s\nAUTO_REPLY=%s\n' "$OWNER" "$ALLOW_ALL" "$AUTO_REPLY"
+    printf 'WHATSAPP_DB=whatsapp.sqlite3\nWHATSAPP_API_TOKEN=%s\nWHATSAPP_API_ORIGINS=\n' "$API_TOKEN"
+    printf 'SOCIAL_WEBHOOK_URL=https://ai.wae.company/inbox/social\nSOCIAL_WEBHOOK_TOKEN=%s\n' "$SOCIAL_TOKEN"
+  } >"$TMP"
   sudo install -o "$APP_USER" -g "$APP_USER" -m 600 "$TMP" "$APP_DIR/.env"
   rm -f "$TMP"; trap - EXIT
-  unset GROQ_KEY APP_SECRET TOKEN
+  unset GROQ_KEY APP_SECRET TOKEN OW_KEY OW_SECRET WA_BLOCK
   echo "created $APP_DIR/.env (mode 600)"
 fi
+PROVIDER=$(envval "$APP_DIR/.env" WHATSAPP_PROVIDER); PROVIDER=${PROVIDER:-openwa}
 API_TOKEN=$(envval "$APP_DIR/.env" WHATSAPP_API_TOKEN)
 SOCIAL_TOKEN=$(envval "$APP_DIR/.env" SOCIAL_WEBHOOK_TOKEN)
 VERIFY=$(envval "$APP_DIR/.env" WHATSAPP_VERIFY_TOKEN)
+echo "WhatsApp provider: $PROVIDER"
 
 say "5/7 WAE Bot settings ($BOT_ENV)"
 sudo cp -p "$BOT_ENV" "$BOT_ENV.bak-$(date +%Y%m%d-%H%M%S)"
@@ -134,6 +153,11 @@ fi
 
 say "6/7 Service"
 sudo cp "$APP_DIR/deploy/wae-post-agent.service" /etc/systemd/system/wae-post-agent.service
+if [ "$PROVIDER" = openwa ]; then
+  # OpenWA runs in Docker and calls the agent through the host: the agent must listen on all interfaces of this server.
+  # That is safe only because port 8000 is NOT open in the server's security group (only 22, 80 and 443 are): keep it that way.
+  sudo sed -i 's/--host 127.0.0.1/--host 0.0.0.0/' /etc/systemd/system/wae-post-agent.service
+fi
 sudo systemctl daemon-reload
 sudo systemctl enable wae-post-agent >/dev/null 2>&1
 sudo systemctl restart wae-post-agent
@@ -142,6 +166,23 @@ sudo systemctl is-active --quiet wae-post-agent || { sudo journalctl -u wae-post
 curl -fsS -o /dev/null -w "docs page: HTTP %{http_code}\n" http://127.0.0.1:8000/docs
 echo "status: $(curl -fsS -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:8000/api/status || echo unreachable)"
 
+if [ "$PROVIDER" = openwa ]; then
+say "7/7 What is left"
+cat <<EOF
+
+OpenWA mode: no nginx step and no Meta step. Check that the session is connected (QR scanned):
+    curl -s -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:8000/api/status
+    (session_status should say connected / ready)
+Then send a message from the allowed number to the linked WhatsApp number: a lead and a reply appear in
+    cd $APP_DIR && sudo -u $APP_USER .venv/bin/python -m app drafts      (or the notice reaches the owner chat)
+Also: keep port 8000 and 2785 closed in the server's security group.
+To open the agent to every customer or to switch automatic replies on or off later, edit $APP_DIR/.env
+(OPENWA_ALLOW_ALL_CHATS, AUTO_REPLY) and run: sudo systemctl restart wae-post-agent
+
+Then copy the new wae-bot-server folder (social-inbox.js, server.js) and:  sudo systemctl restart wae-bot
+Logs:  sudo journalctl -u wae-post-agent -f     and     sudo docker logs -f openwa-api
+EOF
+else
 say "7/7 Two manual steps left"
 cat <<EOF
 
@@ -163,3 +204,4 @@ B) Meta: register the webhook for the business number (field "messages"):
 Then copy the new wae-bot-server folder (social-inbox.js, server.js) and:  sudo systemctl restart wae-bot
 Logs:  sudo journalctl -u wae-post-agent -f
 EOF
+fi
