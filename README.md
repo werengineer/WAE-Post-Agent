@@ -103,6 +103,14 @@ docker compose --project-directory D:\Watsapp-Gateway\OpenWA -f D:\Watsapp-Gatew
 
 Keep both compose files in future recreate commands. No public tunnel is needed locally. Port 8000 listens on all interfaces for Docker connectivity; restrict it to the local/Docker network with your firewall. The receiver verifies raw-body HMAC and deduplicates message IDs before processing.
 
+## Automatic replies (optional)
+
+By default every reply is a draft that a person approves. With `AUTO_REPLY=on` in `.env` (restart after changing it) a reply to a **lead** is sent to the customer right away,
+through the same send path as an approval, and the owner gets a notice saying it was sent. Limits: individual chats only (a group reply still waits for a person),
+`AUTO_REPLY_MAX_PER_CHAT_HOUR` (6) replies per customer per hour and `AUTO_REPLY_MAX_PER_DAY` (1000) in total; over a limit the reply stays a draft.
+Messages that are not business enquiries get no reply. A failed or timed-out automatic send is marked `uncertain`, is never resent, and the owner is told.
+Nobody reads an automatic reply first, so keep `company.json` accurate (its `never_state` line keeps fees, dates and guarantees out of replies) and check `python -m app drafts` regularly.
+
 ## WhatsApp review and reminders
 
 For temporary unrestricted testing, set `OPENWA_ALLOW_ALL_CHATS=true` and restart.
