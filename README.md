@@ -65,6 +65,18 @@ Customer WhatsApp messages use a constrained extraction-and-drafting path. They 
 
 **Sending a saved WhatsApp draft requires explicit approval.** Send `{"message":"send draft #3"}` to `/api/agent/run`, or run `python -m app run "send draft #3"`. This sends the saved text of that draft. `send it` asks for the draft ID. The command is checked deterministically outside the model loop; customer messages and model tool output cannot authorize a send. The direct approval endpoint/CLI also remains available. Social publishing still requires its separate explicit approval action.
 
+## Native publishing (LinkedIn, X, Facebook, Instagram)
+
+`app/services/social_adapters.py` holds direct API adapters, so the webhook is optional. Set the variables listed in `.env.example`, then:
+
+```powershell
+python -m app publish-direct posts/YOUR-POST-ID.json          # dry run: prints the requests only
+python -m app publish-direct posts/YOUR-POST-ID.json --live   # really posts
+```
+
+Instagram drafts need a public HTTPS `image_url` field added to the JSON. A successful live post sets `status` to `published` and stores `remote_id`. There are no retries; after a timeout, check the platform before re-running. Tests mock all HTTP calls.
+`--live` posts at once with the tokens in `.env` and can only be started by a person at the command line: the agent's tools cannot publish. At WAE the reviewed route is the WAE Bot's OpenPost door (`SOCIAL_WEBHOOK_URL`, see above), which makes a draft that a person schedules in OpenPost.
+
 ## Official WhatsApp (Cloud API)
 
 OpenWA is an unofficial gateway and carries a ban risk. For a company number use Meta's official **WhatsApp Cloud API** instead:

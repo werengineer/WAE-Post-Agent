@@ -21,12 +21,17 @@ def social_main():
     draft.add_argument("--company", type=Path, default=Path("company.json"))
     publish = commands.add_parser("publish")
     publish.add_argument("file", type=Path)
+    direct = commands.add_parser("publish-direct", help="Publish a reviewed draft through the platform's own API (dry run unless --live)")
+    direct.add_argument("file", type=Path)
+    direct.add_argument("--live", action="store_true", help="Really send it to the platform")
     run = commands.add_parser("run", help="Ask the combined agent to use its tools")
     run.add_argument("message")
     args = parser.parse_args()
     try:
         if args.command == "publish":
             social.publish(args.file)
+        elif args.command == "publish-direct":
+            social.publish_direct(args.file, args.live)
         elif args.command == "run":
             from app.agent.core import run
             print(json.dumps(run(args.message), ensure_ascii=False, default=str))
@@ -45,7 +50,7 @@ def main():
     import sys
     if len(sys.argv) == 1 or sys.argv[1] in {"-h", "--help"}:
         parser = argparse.ArgumentParser(description="Shared company agent, WhatsApp operations, and social publishing")
-        parser.add_argument("command", nargs="?", choices=["run", "serve", "draft", "publish", "leads", "drafts", "approve", "reject", "remind", "reminders", "cancel-reminder", "notices"])
+        parser.add_argument("command", nargs="?", choices=["run", "serve", "draft", "publish", "publish-direct", "leads", "drafts", "approve", "reject", "remind", "reminders", "cancel-reminder", "notices"])
         parser.print_help()
         return
     if len(sys.argv) > 1 and sys.argv[1] in {"serve", "leads", "drafts", "reminders", "notices", "approve", "reject", "remind", "cancel-reminder"}:

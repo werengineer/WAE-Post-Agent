@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 
-LIMITS = {"linkedin": 3000, "x": 280, "instagram": 2200}
+LIMITS = {"linkedin": 3000, "x": 280, "instagram": 2200, "facebook": 63206}
 
 
 class Draft(BaseModel):
@@ -105,3 +105,25 @@ def publish(path: Path) -> None:
     path.write_text(json.dumps(post, indent=2), encoding="utf-8")
     print(f"Submitted {post['post_id']} to the publishing endpoint.")
 
+
+def publish_direct(path: Path, live: bool = False) -> None:
+    """Publish through the native adapter. Without live=True, only print the requests."""
+    from app.services.social_adapters import PublishError, get_adapter
+    post = json.loads(path.read_text(encoding="utf-8"))
+    if post.get("status") != "draft":
+        raise ValueError("Only drafts can be published")
+    validate_text(post["text"], post["platform"])
+    try:
+        adapter = get_adapter(post["platform"])
+        if not live:
+            for call in adapter.plan(post):
+                print(f"[dry run] {call.method} {call.url}\n{json.dumps(call.json or call.data, indent=2)}")
+            print("Nothing was sent. Re-run with --live after review to publish.")
+            return
+        remote_id = adapter.publish(post)
+    except PublishError as exc:
+        raise ValueError(str(exc)) from exc
+    post.update(status="published", remote_id=remote_id,
+                published_at=datetime.now(timezone.utc).isoformat())
+    path.write_text(json.dumps(post, indent=2), encoding="utf-8")
+    print(f"Published {post['post_id']} to {post['platform']} (id {remote_id}).")
