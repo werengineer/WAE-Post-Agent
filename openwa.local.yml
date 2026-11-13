@@ -1,0 +1,6 @@
+# Overlay for OpenWA running in Docker Desktop and the bot running on Windows.
+# Apply with the original OpenWA compose file first; see README.md.
+services:
+  openwa:
+    environment:
+      SSRF_ALLOWED_HOSTS: host.docker.internal
