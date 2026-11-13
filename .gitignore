@@ -7,3 +7,4 @@ posts/
 *.sqlite3-wal
 *.sqlite3-shm
 whatsapp-bot.*.log
+leads.db
