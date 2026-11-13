@@ -46,6 +46,28 @@ def accept(db, event):
             db.execute("UPDATE reminders SET state='cancelled' WHERE chat=? AND state='pending'", (chat,))
     return bool(inserted)
 
+def auto_reply_on():
+    return os.getenv("AUTO_REPLY", "off").strip().lower() == "on"
+
+
+def _limit(name, default):
+    try:
+        return max(0, int(os.getenv(name, "").strip() or default))
+    except ValueError:
+        return default
+
+
+def auto_reply_allowed(db, chat):
+    """Automatic sending is opt-in (AUTO_REPLY=on), for individual chats only, and capped per chat and per day.
+    When it is not allowed the reply simply stays a draft for a person."""
+    if not auto_reply_on() or not chat.endswith(("@c.us", "@s.whatsapp.net", "@lid")):
+        return False
+    now = time.time()
+    in_chat = db.execute("SELECT count(*) FROM drafts WHERE chat=? AND state='sent' AND sent_at>?", (chat, now - 3600)).fetchone()[0]
+    in_day = db.execute("SELECT count(*) FROM drafts WHERE state='sent' AND sent_at>?", (now - 86400,)).fetchone()[0]
+    return in_chat < _limit("AUTO_REPLY_MAX_PER_CHAT_HOUR", 6) and in_day < _limit("AUTO_REPLY_MAX_PER_DAY", 1000)
+
+
 def process_one(db):
     row = db.execute("SELECT * FROM inbox WHERE state='pending' AND retry_at<=? ORDER BY rowid LIMIT 1",
                      (time.time(),)).fetchone()
@@ -55,6 +77,7 @@ def process_one(db):
         with db:
             db.execute("UPDATE inbox SET state='ignored' WHERE id=?", (row["id"],))
         return
+    draft_id = None  # set when this message produced a reply that may be sent automatically
     try:
         result = generate(db, row["chat"])
         with db:
@@ -70,9 +93,14 @@ def process_one(db):
                     db.execute("UPDATE drafts SET state='superseded' WHERE chat=? AND state='draft'", (row["chat"],))
                     cursor = db.execute("INSERT INTO drafts(event_id,chat,text) VALUES(?,?,?)",
                                         (row["id"], row["chat"], result.reply))
+                    if auto_reply_allowed(db, row["chat"]):
+                        draft_id = cursor.lastrowid
+                        footer = "Sent to the customer automatically."
+                    else:
+                        footer = "Review with: python -m app drafts"
                     db.execute("INSERT INTO notices(text,chat) VALUES(?,?)", (
                         f"Lead: {row['chat']}\nDetails: {json.dumps(result.details, ensure_ascii=False)}\n"
-                        f"Draft #{cursor.lastrowid}:\n{result.reply}\nReview with: python -m app drafts",
+                        f"Draft #{cursor.lastrowid}:\n{result.reply}\n{footer}",
                         row["chat"],
                     ))
             db.execute("UPDATE inbox SET state='done' WHERE id=?", (row["id"],))
@@ -80,6 +108,17 @@ def process_one(db):
         with db:
             db.execute("UPDATE inbox SET attempts=attempts+1,retry_at=? WHERE id=?", (time.time() + 60, row["id"]))
         LOG.exception("Draft generation failed; queued for retry")
+    else:
+        # Outside the try: a failed send must never re-run the model (that would draft and send a second reply).
+        if draft_id is not None:
+            try:
+                approve(db, draft_id)
+            except Exception:
+                LOG.exception("Automatic reply failed; it is marked uncertain and is not resent")
+                with db:
+                    db.execute("INSERT INTO notices(text,chat) VALUES(?,?)", (
+                        f"Automatic reply to {row['chat']} failed (draft #{draft_id} is marked uncertain). "
+                        "Check WhatsApp before sending anything to this customer again.", row["chat"]))
 
 
 def deliver(db, table, row, text):
