@@ -8,3 +8,4 @@ posts/
 *.sqlite3-shm
 whatsapp-bot.*.log
 leads.db
+style.json

@@ -50,13 +50,33 @@ def main():
     import sys
     if len(sys.argv) == 1 or sys.argv[1] in {"-h", "--help"}:
         parser = argparse.ArgumentParser(description="Shared company agent, WhatsApp operations, and social publishing")
-        parser.add_argument("command", nargs="?", choices=["run", "serve", "draft", "publish", "publish-direct", "leads", "drafts", "approve", "reject", "remind", "reminders", "cancel-reminder", "notices", "followups"])
+        parser.add_argument("command", nargs="?", choices=["run", "serve", "draft", "publish", "publish-direct", "leads", "drafts", "approve", "reject", "remind", "reminders", "cancel-reminder", "notices", "followups", "learn-style"])
         parser.print_help()
         return
+    if sys.argv[1] == "learn-style":
+        return style_main(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] in {"serve", "leads", "drafts", "reminders", "notices", "followups", "approve", "reject", "remind", "cancel-reminder"}:
         whatsapp_main()
     else:
         social_main()
+
+
+def style_main(argv):
+    """python -m app learn-style --me "<name of the 788 number in the export>" chat1.txt chat2.txt ..."""
+    from app.services import style
+    load_dotenv()
+    parser = argparse.ArgumentParser(prog="learn-style", description="Learn how the team writes on WhatsApp from exported chats (WhatsApp > chat > Export chat > Without media)")
+    parser.add_argument("files", nargs="+", type=Path, help="exported chat .txt files of the 788 number")
+    parser.add_argument("--me", required=True, help="the name the 788 number has in the export (part of it is enough, e.g. WAE)")
+    args = parser.parse_args(argv)
+    try:
+        texts = [path.read_text(encoding="utf-8-sig", errors="replace") for path in args.files]
+        result = style.learn(texts, args.me)
+    except (ValueError, OSError) as exc:
+        parser.exit(1, f"Error: {exc}\n")
+    print(f"Learned from {result['learned_from_messages']} of our messages, {len(result['examples'])} example exchanges kept.")
+    print(f"Saved to {style.style_path()}. Read it, then restart the agent. Delete the file to go back to the plain tone of company.json.\n")
+    print(result["guide"])
 
 
 def whatsapp_main():

@@ -135,6 +135,21 @@ through the same send path as an approval, and the owner gets a notice saying it
 Messages that are not business enquiries get no reply. A failed or timed-out automatic send is marked `uncertain`, is never resent, and the owner is told.
 Nobody reads an automatic reply first, so keep `company.json` accurate (its `never_state` line keeps fees, dates and guarantees out of replies) and check `python -m app drafts` regularly.
 
+## Write like the team (learn the 788 number's chat style)
+
+The agent can learn how the team really writes on the WhatsApp number (greeting, Hindi/English mix, length, emoji, how it asks for details) and write replies and follow-ups the same way.
+
+1. On the phone of that number: open a customer chat > ⋮ / contact name > **Export chat** > **Without media**. Do this for 10 to 30 real chats (more chats = a better picture). Put the `.txt` files in one folder on the server.
+2. Run (replace `WAE` with a part of the name the number has in the export; if the name is wrong the error lists the names it found):
+
+```bash
+python -m app learn-style --me "WAE" chats/*.txt
+```
+
+3. It writes `style.json` (git-ignored; it holds customer words, so it stays on the server): a short style guide written by the model from the team's own messages, plus about 10 real "customer wrote / we replied" examples with phone numbers, e-mails and links masked. Read it, then restart the agent. Delete the file to go back to the plain tone of `company.json`.
+
+Only the team's own messages (and the customer line before each reply, masked) are sent to the model provider, the same one that writes the replies. The style is a model of how to write only: facts, prices and dates in the examples are never copied, and `company.json`'s `brand_rule`, `never_state` and the customer-language rule always win. Settings: `STYLE_FILE` (default `style.json`), `STYLE_EXAMPLES` (default 10).
+
 ## WhatsApp review and reminders
 
 For temporary unrestricted testing, set `OPENWA_ALLOW_ALL_CHATS=true` and restart.
