@@ -127,7 +127,7 @@ Nobody reads an automatic reply first, so keep `company.json` accurate (its `nev
 
 For temporary unrestricted testing, set `OPENWA_ALLOW_ALL_CHATS=true` and restart.
 This overrides the saved test chat across incoming messages, tools, the API, and
-approval commands, including group chats. Set it back to `false` and restart to
+approval commands, individual chats only: group chats stay ignored unless `OPENWA_ALLOW_GROUPS=true` is also set (a group set as `OPENWA_TEST_CHAT_ID` still works). Set it back to `false` and restart to
 restore `OPENWA_TEST_CHAT_ID`. `/api/status` reports `allow_all_chats`. Explicit send
 approval is still required in either mode; outgoing messages are still ignored.
 

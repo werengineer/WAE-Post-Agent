@@ -53,7 +53,7 @@ class WhatsAppTests(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT count(*) FROM inbox").fetchone()[0], 0)
 
     def test_unrestricted_mode_accepts_other_chats_but_ignores_outgoing(self):
-        with patch.dict(os.environ, {"OPENWA_ALLOW_ALL_CHATS": "true"}):
+        with patch.dict(os.environ, {"OPENWA_ALLOW_ALL_CHATS": "true", "OPENWA_ALLOW_GROUPS": "true"}):
             for chat in ("other@lid", "other@g.us"):
                 event = {**self.event, "data": {**self.event["data"], "chatId": chat, "id": chat,
                          "isGroup": chat.endswith("@g.us")}}
@@ -62,6 +62,20 @@ class WhatsAppTests(unittest.TestCase):
                 event["data"]["id"] += "-own"
                 self.assertFalse(bot.accept(self.db, event))
         self.assertFalse(bot.allowed_chat("other@lid"))
+
+    def test_unrestricted_mode_ignores_groups_unless_asked(self):
+        group = "120363405189874238@g.us"
+        with patch.dict(os.environ, {"OPENWA_ALLOW_ALL_CHATS": "true"}):
+            self.assertTrue(bot.allowed_chat("other@lid"))
+            self.assertTrue(bot.allowed_chat("919876543210@c.us"))
+            self.assertFalse(bot.allowed_chat(group))
+            event = {**self.event, "data": {**self.event["data"], "chatId": group, "id": "grp", "isGroup": True}}
+            self.assertFalse(bot.accept(self.db, event))
+        with patch.dict(os.environ, {"OPENWA_ALLOW_ALL_CHATS": "true", "OPENWA_ALLOW_GROUPS": "true"}):
+            self.assertTrue(bot.allowed_chat(group))
+        # a group chosen as THE test chat keeps working without the switch
+        with patch.dict(os.environ, {"OPENWA_ALLOW_ALL_CHATS": "false", "OPENWA_TEST_CHAT_ID": group}):
+            self.assertTrue(bot.allowed_chat(group))
 
     def test_only_selected_group_is_accepted_and_author_preserved(self):
         group = "120363405189874238@g.us"
