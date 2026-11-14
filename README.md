@@ -115,6 +115,15 @@ docker compose --project-directory D:\Watsapp-Gateway\OpenWA -f D:\Watsapp-Gatew
 
 Keep both compose files in future recreate commands. No public tunnel is needed locally. Port 8000 listens on all interfaces for Docker connectivity; restrict it to the local/Docker network with your firewall. The receiver verifies raw-body HMAC and deduplicates message IDs before processing.
 
+## Automatic follow-ups (optional)
+
+With `FOLLOWUP=on` (OpenWA mode; restart after changing it) a customer who got a reply from us and then stays silent gets one polite follow-up, written by the model in the customer's language,
+`FOLLOWUP_DELAYS_HOURS` (default 24) hours after our reply. Everything below is enforced in code, not by the model:
+a follow-up is only ever the next step of a conversation the customer started; any new message from the customer cancels the waiting one; a stop message
+("stop", "not interested", "nahi chahiye", "mat bhejo" ...) blocks that chat for good; follow-ups go out only inside `FOLLOWUP_HOURS` (default 10-19 local time),
+at most `FOLLOWUP_MAX_PER_DAY` (200) a day, never to groups; a failed or timed-out send is marked `uncertain` and never repeated. The owner gets a notice for every follow-up that was sent.
+`python -m app followups` lists them with their state (pending, sent, cancelled, uncertain, failed). A Meta Cloud API number cannot do this: free text works only within 24 hours of the customer's last message.
+
 ## Automatic replies (optional)
 
 By default every reply is a draft that a person approves. With `AUTO_REPLY=on` in `.env` (restart after changing it) a reply to a **lead** is sent to the customer right away,

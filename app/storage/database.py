@@ -22,6 +22,12 @@ def connect():
         CREATE TABLE IF NOT EXISTS notices (
             id INTEGER PRIMARY KEY, text TEXT NOT NULL,
             state TEXT NOT NULL DEFAULT 'pending', chat TEXT);
+        CREATE TABLE IF NOT EXISTS followups (
+            id INTEGER PRIMARY KEY, chat TEXT NOT NULL, step INTEGER NOT NULL, due REAL NOT NULL,
+            state TEXT NOT NULL DEFAULT 'pending', text TEXT, message_id TEXT, sent_at REAL,
+            attempts INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL, draft_id INTEGER);
+        CREATE TABLE IF NOT EXISTS optouts (
+            chat TEXT PRIMARY KEY, at REAL NOT NULL, reason TEXT);
     """)
     if "chat" not in {row["name"] for row in db.execute("PRAGMA table_info(notices)")}:
         with db:

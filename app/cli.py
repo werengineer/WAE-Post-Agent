@@ -50,10 +50,10 @@ def main():
     import sys
     if len(sys.argv) == 1 or sys.argv[1] in {"-h", "--help"}:
         parser = argparse.ArgumentParser(description="Shared company agent, WhatsApp operations, and social publishing")
-        parser.add_argument("command", nargs="?", choices=["run", "serve", "draft", "publish", "publish-direct", "leads", "drafts", "approve", "reject", "remind", "reminders", "cancel-reminder", "notices"])
+        parser.add_argument("command", nargs="?", choices=["run", "serve", "draft", "publish", "publish-direct", "leads", "drafts", "approve", "reject", "remind", "reminders", "cancel-reminder", "notices", "followups"])
         parser.print_help()
         return
-    if len(sys.argv) > 1 and sys.argv[1] in {"serve", "leads", "drafts", "reminders", "notices", "approve", "reject", "remind", "cancel-reminder"}:
+    if len(sys.argv) > 1 and sys.argv[1] in {"serve", "leads", "drafts", "reminders", "notices", "followups", "approve", "reject", "remind", "cancel-reminder"}:
         whatsapp_main()
     else:
         social_main()
@@ -67,7 +67,7 @@ def whatsapp_main():
     serve = commands.add_parser("serve")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
-    for name in ("leads", "drafts", "reminders", "notices"):
+    for name in ("leads", "drafts", "reminders", "notices", "followups"):
         commands.add_parser(name)
     approve_cmd = commands.add_parser("approve")
     approve_cmd.add_argument("id", type=int)
@@ -87,7 +87,7 @@ def whatsapp_main():
                 import uvicorn
                 from app.api.main import create_app
                 uvicorn.run(create_app(), host=args.host, port=args.port, workers=1)
-            elif args.command in {"leads", "drafts", "reminders", "notices"}:
+            elif args.command in {"leads", "drafts", "reminders", "notices", "followups"}:
                 for row in db.execute(f"SELECT * FROM {args.command}"):
                     item = dict(row)
                     if "due" in item:

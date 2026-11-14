@@ -8,6 +8,7 @@ from app.storage.database import connect
 from app.services.messaging import send_text, session_id
 from app.agent.drafting import LeadDraft, generate
 from app.services.chat_policy import allowed_chat
+from app.services import followups
 
 LOG = logging.getLogger(__name__)
 
@@ -44,6 +45,8 @@ def accept(db, event):
             # Do not send a stale reply or follow-up after a new customer message.
             db.execute("UPDATE drafts SET state='superseded' WHERE chat=? AND state='draft'", (chat,))
             db.execute("UPDATE reminders SET state='cancelled' WHERE chat=? AND state='pending'", (chat,))
+            # the customer answered: a waiting follow-up is cancelled, and "stop" blocks the chat for good
+            followups.register_inbound(db, chat, body)
     return bool(inserted)
 
 def auto_reply_on():
@@ -167,6 +170,10 @@ def approve(db, draft_id, replacement=None):
         raise
     with db:
         db.execute("UPDATE drafts SET state='sent',message_id=?,sent_at=? WHERE id=?", (message_id, time.time(), draft_id))
+    try:
+        followups.schedule(db, row["chat"], draft_id)  # FOLLOWUP=on: a nudge is planned after this reply
+    except Exception:
+        LOG.exception("Could not plan the follow-up; the reply itself was sent")
 
 
 def add_reminder(db, chat, due, note):
