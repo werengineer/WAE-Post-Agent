@@ -115,6 +115,18 @@ docker compose --project-directory D:\Watsapp-Gateway\OpenWA -f D:\Watsapp-Gatew
 
 Keep both compose files in future recreate commands. No public tunnel is needed locally. Port 8000 listens on all interfaces for Docker connectivity; restrict it to the local/Docker network with your firewall. The receiver verifies raw-body HMAC and deduplicates message IDs before processing.
 
+## Automatic follow-ups (optional)
+
+With `FOLLOWUP=on` (OpenWA mode; restart after changing it) a customer who got a reply from us and then stays silent gets one polite follow-up, written by the model in the customer's language,
+`FOLLOWUP_DELAYS_HOURS` (default 24) hours after our reply. Everything below is enforced in code, not by the model:
+a follow-up is only ever the next step of a conversation the customer started; any new message from the customer cancels the waiting one; a stop message
+("stop", "not interested", "nahi chahiye", "mat bhejo" ...) blocks that chat for good; follow-ups go out only inside `FOLLOWUP_HOURS` (default 10-19 local time),
+at most `FOLLOWUP_MAX_PER_DAY` (200) a day, never to groups; a failed or timed-out send is marked `uncertain` and never repeated. The owner gets a notice for every follow-up that was sent.
+**The customer can set the time:** when they say they are busy and name a moment ("abhi free nahi hu, shaam ko baat karte hain", "kal subah", "2 ghante baad", "Monday ko"), the model reads it, the reply confirms it,
+and the follow-up goes out at that moment instead of after `FOLLOWUP_DELAYS_HOURS` (the owner is told the planned time). Times that are in the past or more than 30 days away are ignored; such a follow-up may use the wider window
+`FOLLOWUP_REQUESTED_HOURS` (default 8-21). Without a stated time the normal delay applies.
+`python -m app followups` lists them with their state (pending, sent, cancelled, uncertain, failed). A Meta Cloud API number cannot do this: free text works only within 24 hours of the customer's last message.
+
 ## Automatic replies (optional)
 
 By default every reply is a draft that a person approves. With `AUTO_REPLY=on` in `.env` (restart after changing it) a reply to a **lead** is sent to the customer right away,
@@ -123,11 +135,26 @@ through the same send path as an approval, and the owner gets a notice saying it
 Messages that are not business enquiries get no reply. A failed or timed-out automatic send is marked `uncertain`, is never resent, and the owner is told.
 Nobody reads an automatic reply first, so keep `company.json` accurate (its `never_state` line keeps fees, dates and guarantees out of replies) and check `python -m app drafts` regularly.
 
+## Write like the team (learn the 788 number's chat style)
+
+The agent can learn how the team really writes on the WhatsApp number (greeting, Hindi/English mix, length, emoji, how it asks for details) and write replies and follow-ups the same way.
+
+1. On the phone of that number: open a customer chat > ⋮ / contact name > **Export chat** > **Without media**. Do this for 10 to 30 real chats (more chats = a better picture). Put the `.txt` files in one folder on the server.
+2. Run (replace `WAE` with a part of the name the number has in the export; if the name is wrong the error lists the names it found):
+
+```bash
+python -m app learn-style --me "WAE" chats/*.txt
+```
+
+3. It writes `style.json` (git-ignored; it holds customer words, so it stays on the server): a short style guide written by the model from the team's own messages, plus about 10 real "customer wrote / we replied" examples with phone numbers, e-mails and links masked. Read it, then restart the agent. Delete the file to go back to the plain tone of `company.json`.
+
+Only the team's own messages (and the customer line before each reply, masked) are sent to the model provider, the same one that writes the replies. The style is a model of how to write only: facts, prices and dates in the examples are never copied, and `company.json`'s `brand_rule`, `never_state` and the customer-language rule always win. Settings: `STYLE_FILE` (default `style.json`), `STYLE_EXAMPLES` (default 10).
+
 ## WhatsApp review and reminders
 
 For temporary unrestricted testing, set `OPENWA_ALLOW_ALL_CHATS=true` and restart.
 This overrides the saved test chat across incoming messages, tools, the API, and
-approval commands, including group chats. Set it back to `false` and restart to
+approval commands, individual chats only: group chats stay ignored unless `OPENWA_ALLOW_GROUPS=true` is also set (a group set as `OPENWA_TEST_CHAT_ID` still works). Set it back to `false` and restart to
 restore `OPENWA_TEST_CHAT_ID`. `/api/status` reports `allow_all_chats`. Explicit send
 approval is still required in either mode; outgoing messages are still ignored.
 

@@ -16,6 +16,11 @@ def tick(db):
         bot.deliver(db, "notices", row, row["text"])
     for row in db.execute("SELECT * FROM reminders WHERE state='pending' AND due<=?", (time.time(),)).fetchall():
         bot.deliver(db, "reminders", row, f"Follow up: {row['chat']}\n{row['note']}")
+    try:
+        from app.services import followups
+        followups.tick(db)  # at most one automatic follow-up per look (FOLLOWUP=on)
+    except Exception:
+        bot.LOG.exception("Follow-up step failed; trying again next cycle")
 
 
 @asynccontextmanager
@@ -37,7 +42,7 @@ async def lifespan(app):
     if not unrestricted() and not os.getenv("OPENWA_TEST_CHAT_ID", "").strip():
         bot.LOG.warning("No OPENWA_TEST_CHAT_ID set: all customer chats are blocked")
     with closing(bot.connect()) as db, db:
-        for table in ("drafts", "reminders", "notices"):
+        for table in ("drafts", "reminders", "notices", "followups"):
             db.execute(f"UPDATE {table} SET state='uncertain' WHERE state='sending'")
     stop = threading.Event()
 
