@@ -122,6 +122,9 @@ With `FOLLOWUP=on` (OpenWA mode; restart after changing it) a customer who got a
 a follow-up is only ever the next step of a conversation the customer started; any new message from the customer cancels the waiting one; a stop message
 ("stop", "not interested", "nahi chahiye", "mat bhejo" ...) blocks that chat for good; follow-ups go out only inside `FOLLOWUP_HOURS` (default 10-19 local time),
 at most `FOLLOWUP_MAX_PER_DAY` (200) a day, never to groups; a failed or timed-out send is marked `uncertain` and never repeated. The owner gets a notice for every follow-up that was sent.
+**The customer can set the time:** when they say they are busy and name a moment ("abhi free nahi hu, shaam ko baat karte hain", "kal subah", "2 ghante baad", "Monday ko"), the model reads it, the reply confirms it,
+and the follow-up goes out at that moment instead of after `FOLLOWUP_DELAYS_HOURS` (the owner is told the planned time). Times that are in the past or more than 30 days away are ignored; such a follow-up may use the wider window
+`FOLLOWUP_REQUESTED_HOURS` (default 8-21). Without a stated time the normal delay applies.
 `python -m app followups` lists them with their state (pending, sent, cancelled, uncertain, failed). A Meta Cloud API number cannot do this: free text works only within 24 hours of the customer's last message.
 
 ## Automatic replies (optional)

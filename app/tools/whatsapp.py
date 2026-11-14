@@ -94,8 +94,10 @@ def process_one(db):
                     if not result.reply.strip():
                         raise ValueError("Model returned an empty reply")
                     db.execute("UPDATE drafts SET state='superseded' WHERE chat=? AND state='draft'", (row["chat"],))
-                    cursor = db.execute("INSERT INTO drafts(event_id,chat,text) VALUES(?,?,?)",
-                                        (row["id"], row["chat"], result.reply))
+                    # a time the customer asked for ("shaam ko baat karte hain") travels with the reply and sets the follow-up time
+                    asked = followups.requested_time(getattr(result, "follow_up_at", ""))
+                    cursor = db.execute("INSERT INTO drafts(event_id,chat,text,follow_up_at) VALUES(?,?,?,?)",
+                                        (row["id"], row["chat"], result.reply, asked))
                     if auto_reply_allowed(db, row["chat"]):
                         draft_id = cursor.lastrowid
                         footer = "Sent to the customer automatically."
@@ -171,7 +173,7 @@ def approve(db, draft_id, replacement=None):
     with db:
         db.execute("UPDATE drafts SET state='sent',message_id=?,sent_at=? WHERE id=?", (message_id, time.time(), draft_id))
     try:
-        followups.schedule(db, row["chat"], draft_id)  # FOLLOWUP=on: a nudge is planned after this reply
+        followups.schedule(db, row["chat"], draft_id, requested_at=row["follow_up_at"])  # FOLLOWUP=on: a nudge is planned after this reply
     except Exception:
         LOG.exception("Could not plan the follow-up; the reply itself was sent")
 

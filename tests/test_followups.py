@@ -202,6 +202,78 @@ class FollowUpTests(unittest.TestCase):
         sender.assert_not_called()
         self.assertEqual(self.rows()[0]["state"], "cancelled")
 
+    # ---- a time the customer asked for ("abhi free nahi hu, shaam ko baat karte hain")
+    def test_requested_time_reading(self):
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Asia/Kolkata"))
+        in_three_hours = now + timedelta(hours=3)
+        stamp = followups.requested_time(in_three_hours.isoformat())
+        self.assertAlmostEqual(stamp, in_three_hours.timestamp(), delta=2)
+        # a time without an offset is read in AGENT_TIMEZONE
+        self.assertAlmostEqual(followups.requested_time(in_three_hours.replace(tzinfo=None).isoformat()), stamp, delta=2)
+        for bad in ("", "  ", "kal shaam", "2020-01-01T10:00:00+05:30", (now + timedelta(days=31)).isoformat(),
+                    (now + timedelta(seconds=10)).isoformat(), None):
+            self.assertIsNone(followups.requested_time(bad), bad)
+
+    def test_the_time_the_customer_asked_for_replaces_the_delay_and_the_owner_is_told(self):
+        asked = time.time() + 3 * 3600
+        self.assertTrue(followups.schedule(self.db, CUSTOMER, None, requested_at=asked))
+        row = self.rows()[0]
+        self.assertAlmostEqual(row["due"], asked, delta=2)
+        self.assertEqual(row["requested"], 1)
+        self.assertIn("asked us to get back", self.db.execute("SELECT text FROM notices").fetchone()[0])
+
+    def test_a_requested_time_that_has_passed_falls_back_to_the_normal_delay(self):
+        before = time.time()
+        followups.schedule(self.db, CUSTOMER, None, requested_at=before - 3600)
+        row = self.rows()[0]
+        self.assertEqual(row["requested"], 0)
+        self.assertAlmostEqual(row["due"], before + 24 * 3600, delta=10)
+
+    def test_a_requested_follow_up_may_use_the_wider_window(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        zone = ZoneInfo("Asia/Kolkata")
+        with patch.dict(os.environ, {"FOLLOWUP_HOURS": "10-19", "FOLLOWUP_REQUESTED_HOURS": "8-21"}):
+            evening = datetime(2026, 11, 14, 20, 0, tzinfo=zone)
+            self.assertFalse(followups.in_hours(evening))
+            self.assertTrue(followups.in_hours(evening, requested=True))
+            self.assertFalse(followups.in_hours(datetime(2026, 11, 14, 22, 0, tzinfo=zone), requested=True))
+
+    def test_the_requested_follow_up_is_sent_when_its_own_window_is_open(self):
+        followups.schedule(self.db, CUSTOMER, None, requested_at=time.time() + 3600)
+        self.make_due()
+        with patch.object(followups, "in_hours", side_effect=lambda now=None, requested=False: requested):
+            sender = self.run_tick()
+        sender.assert_called_once()
+        self.assertEqual(self.rows()[0]["state"], "sent")
+
+    def test_the_follow_up_text_is_told_that_the_customer_asked_for_this_time(self):
+        followups.schedule(self.db, CUSTOMER, None, requested_at=time.time() + 3600)
+        self.make_due()
+        with patch("app.agent.drafting.generate_followup", return_value="Aap ne kaha tha, ab free hain?") as writer, \
+                patch.object(followups, "send_text", return_value="wa"):
+            followups.tick(self.db)
+        self.assertEqual(writer.call_args.args[3], True)  # (db, chat, step, requested)
+
+    def test_a_time_the_customer_names_travels_from_the_model_through_the_reply_to_the_follow_up(self):
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+        from app.agent.drafting import LeadDraft
+        asked = (datetime.now(ZoneInfo("Asia/Kolkata")) + timedelta(hours=3)).isoformat()
+        self.customer_writes("Abhi free nahi hu, shaam ko baat karte hain")
+        lead = LeadDraft(is_lead=True, details={}, reply="Theek hai, shaam ko baat karte hain.", follow_up_at=asked)
+        with patch.object(bot, "generate", return_value=lead):
+            bot.process_one(self.db)
+        draft = self.db.execute("SELECT * FROM drafts").fetchone()
+        self.assertAlmostEqual(draft["follow_up_at"], followups.requested_time(asked), delta=2)
+        with patch.object(bot, "send_text", return_value="wa-reply"):
+            bot.approve(self.db, draft["id"])
+        row = self.rows()[0]
+        self.assertEqual(row["requested"], 1)
+        self.assertAlmostEqual(row["due"], draft["follow_up_at"], delta=2)
+
 
 if __name__ == "__main__":
     unittest.main()

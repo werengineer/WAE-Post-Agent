@@ -50,11 +50,14 @@ def delays():
     return hours or [24.0]
 
 
-def in_hours(now=None):
-    match = re.fullmatch(r"\s*(\d{1,2})\s*-\s*(\d{1,2})\s*", os.getenv("FOLLOWUP_HOURS", "10-19"))
-    start, end = (int(match[1]), int(match[2])) if match else (10, 19)
+def in_hours(now=None, requested=False):
+    """Inside the sending window? A time the customer asked for has its own, wider window (FOLLOWUP_REQUESTED_HOURS, default 8-21)."""
+    default = "8-21" if requested else "10-19"
+    match = re.fullmatch(r"\s*(\d{1,2})\s*-\s*(\d{1,2})\s*", os.getenv("FOLLOWUP_REQUESTED_HOURS" if requested else "FOLLOWUP_HOURS", default))
+    fallback = (8, 21) if requested else (10, 19)
+    start, end = (int(match[1]), int(match[2])) if match else fallback
     if not 0 <= start < end <= 24:
-        start, end = 10, 19
+        start, end = fallback
     now = now or datetime.now(ZoneInfo(os.getenv("AGENT_TIMEZONE", "Asia/Kolkata")))
     return start <= now.hour < end
 
@@ -70,16 +73,38 @@ def is_opted_out(db, chat):
     return db.execute("SELECT 1 FROM optouts WHERE chat=?", (chat,)).fetchone() is not None
 
 
-def schedule(db, chat, draft_id=None):
-    """Called when a reply to a lead has been sent: plan the first follow-up (unless one is already waiting)."""
+def requested_time(text, now=None):
+    """The moment the customer asked for ("shaam ko 6 baje"), as the model wrote it in ISO 8601 -> epoch seconds, or None when it is empty,
+    unreadable, in the past or more than 30 days away. A time without an offset is read in AGENT_TIMEZONE."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    try:
+        moment = datetime.fromisoformat(text.strip())
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=ZoneInfo(os.getenv("AGENT_TIMEZONE", "Asia/Kolkata")))
+    now = now if now is not None else time.time()
+    stamp = moment.timestamp()
+    return stamp if now + 60 <= stamp <= now + 30 * 86400 else None
+
+
+def schedule(db, chat, draft_id=None, requested_at=None):
+    """Called when a reply to a lead has been sent: plan the first follow-up (unless one is already waiting).
+    requested_at = the time the customer asked us to get back to them: it replaces the usual delay."""
     if not enabled() or not isinstance(chat, str) or chat.endswith("@g.us") or is_opted_out(db, chat):
         return False
     if db.execute("SELECT 1 FROM followups WHERE chat=? AND state IN ('pending','sending')", (chat,)).fetchone():
         return False
     now = time.time()
+    # the asked-for moment was checked when the reply was written; if it has slipped into the past meanwhile (late approval), the normal delay applies
+    asked = float(requested_at) if requested_at and now + 60 <= float(requested_at) <= now + 30 * 86400 else None
     with db:
-        db.execute("INSERT INTO followups(chat,step,due,created_at,draft_id) VALUES(?,?,?,?,?)",
-                   (chat, 1, now + delays()[0] * 3600, now, draft_id))
+        db.execute("INSERT INTO followups(chat,step,due,created_at,draft_id,requested) VALUES(?,?,?,?,?,?)",
+                   (chat, 1, asked if asked else now + delays()[0] * 3600, now, draft_id, 1 if asked else 0))
+        if asked:
+            local = datetime.fromtimestamp(asked, ZoneInfo(os.getenv("AGENT_TIMEZONE", "Asia/Kolkata"))).strftime("%d %b, %I:%M %p")
+            _notice(db, chat, f"{chat} asked us to get back to them: follow-up planned for {local}.")
     return True
 
 
@@ -107,7 +132,7 @@ def tick(db, now=None):
         with db:
             db.execute("UPDATE followups SET state='cancelled' WHERE id=?", (row["id"],))
         return
-    if not in_hours():
+    if not in_hours(requested=bool(row["requested"])):
         return  # it stays due and goes out when the window opens
     sent_today = db.execute("SELECT count(*) FROM followups WHERE state='sent' AND sent_at>?", (now - 86400,)).fetchone()[0]
     if sent_today >= _daily_limit():
@@ -117,7 +142,7 @@ def tick(db, now=None):
             return
     try:
         from app.agent.drafting import generate_followup
-        text = (generate_followup(db, chat, row["step"]) or "").strip()
+        text = (generate_followup(db, chat, row["step"], bool(row["requested"])) or "").strip()
     except Exception:
         LOG.exception("Follow-up text could not be written")
         attempts = row["attempts"] + 1
