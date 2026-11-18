@@ -1,0 +1,10 @@
+{
+  "_note": "Sites Baya's SEO routine may read. Only these hosts are ever fetched. Confirm growati.com.",
+  "sites": [
+    {"key": "wae-academy", "url": "https://academy.weareengineer.com", "dir": "seo/wae-academy", "focus": "courses, Dwarka/Delhi local intent"},
+    {"key": "wae-site", "url": "https://weareengineer.com", "dir": "seo/wae-site", "focus": "brand and entity, guides for engineers"},
+    {"key": "wae-products", "url": "https://weareengineer.com", "dir": "seo/wae-products", "focus": "WAE Companies, Projects, Server topics"},
+    {"key": "velvettips", "url": "https://velvettips.com", "dir": "seo/velvettips", "focus": "press-on nails how-tos"},
+    {"key": "growati", "url": "https://growati.com", "dir": "seo/growati", "focus": "YouTube growth questions"}
+  ]
+}
